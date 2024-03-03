@@ -11,6 +11,7 @@ main(int argc, char *argv[])
   }
 
   int n=atoi(argv[1]);
+  //pause for n clock ticks
   sleep(n);
 
   exit(0);
