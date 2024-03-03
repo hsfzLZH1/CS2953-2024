@@ -12,14 +12,18 @@ main(int argc, char *argv[])
   if(fork()==0)//child
   {
     read(p[0],buf,1);
+    close(p[0]);
     printf("%d: received ping\n",getpid());
     write(p[1],buf,1);
+    close(p[1]);
   }
   else //parent
   {
     write(p[1],buf,1);//send a byte to child
+    close(p[1]);
     wait((int*)0);
     read(p[0],buf,1);//read the byte from the child
+    close(p[0]);
     printf("%d: received pong\n",getpid());
   }
 
