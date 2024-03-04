@@ -689,3 +689,16 @@ procdump(void)
     printf("\n");
   }
 }
+
+// Count the number of processes in use
+int
+count_proc(void)
+{
+  int cnt=0;
+  struct proc*p;
+  for(p=proc;p<&proc[NPROC];p++)
+  {
+    if(p->state!=UNUSED)cnt++;
+  }
+  return cnt;
+}

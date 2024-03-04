@@ -102,6 +102,7 @@ extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
 extern uint64 sys_trace(void);
+extern uint64 sys_sysinfo(void);
 
 #ifdef LAB_NET
 extern uint64 sys_connect(void);
@@ -135,6 +136,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
 [SYS_trace]   sys_trace, // lab1 add trace
+[SYS_sysinfo] sys_sysinfo, // lab1 add sysinfo
 #ifdef LAB_NET
 [SYS_connect] sys_connect,
 #endif
@@ -167,7 +169,8 @@ char syscall_names[][8]={"",
 "link",
 "mkdir",
 "close",
-"trace"};
+"trace",
+"sysinfo"};
 
 void
 syscall(void)

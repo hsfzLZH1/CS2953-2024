@@ -80,3 +80,17 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+// Collect amount of free memory.
+// The length of run is the free page number.
+int
+count_free(void)
+{
+  int cnt=0;
+  struct run*r;
+
+  r=kmem.freelist;
+  for(r=kmem.freelist;r;r=r->next)
+    cnt++;
+  return cnt*PGSIZE;
+}

@@ -6,6 +6,8 @@
 #include "spinlock.h"
 #include "proc.h"
 
+#include "sysinfo.h" // Lab1 sysinfo
+
 uint64
 sys_exit(void)
 {
@@ -110,5 +112,21 @@ sys_trace(void)
   int mask;
   argint(0,&mask);
   myproc()->trace_mask=mask;
+  return 0;
+}
+
+// collect freemem & nproc about the running system
+uint64
+sys_sysinfo(void)
+{
+  uint64 vaddr; // user pointer to struct sysinfo
+  struct sysinfo info;
+
+  info.freemem=count_free();
+  info.nproc=count_proc();
+
+  argaddr(0,&vaddr);
+  if(copyout(myproc()->pagetable,vaddr,(char*)&info,sizeof(info))<0)
+    return -1;
   return 0;
 }
