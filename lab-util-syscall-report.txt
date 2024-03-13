@@ -1,0 +1,41 @@
+- sleep
+
+包含头文件 kernel/types.h， kernel/stat.h， user/user.h（ system call 和 library functions for user programs 的声明）.
+
+传入参数数量为 argc ，参数列表为 argv ， argv[0] 为程序名，若没有其他传入参数，即 argc<2 ，则输出错误信息，返回值 1 表示错误；否则认为 argv[1] 为需要暂停的 tick 数量 n ，用 library function atoi 转化为整数调用 sleep(n) ，忽略其他的参数.
+
+需要在 Makefile 的 UPROGS 加上 $U/_sleep\ ，之后增加 user program 也需要这一步.
+
+- pingpong
+
+用 pipe[p] 创建一个管道用于在父进程与子进程间传递消息，其中 p 是 int 数组， p[0] 是读的 file descriptor ， p[1] 是写的 file descriptor.
+
+使用 fork() 创建子进程，之后父子进程都有到同一个 pipe 的 fd . 子进程的代码在 fork()==0 部分进行，父进程的代码在 else 部分进行. 按照要求的顺序，父进程向 pipe 写入一个 byte write(p[1],buf,1) ，其中 buf 是 char 数组， 1 是写入的 byte 数；子进程从 pipe 读一个 byte ，输出，再向 pipe 写入一个 byte ， exit ；父进程用 wait(..) （返回值不重要）等待子进程 exit 后从 pipe 读一个 byte ，输出. 
+
+pipe 保证 read 会等待 write ，所以不会出现没有读到 pingpong byte 的情况. 在进程使用完 pipe 的读/写 fd 后，可以用 close(fd) 关闭.
+
+- trace
+
+新添加 system call trace ，需要：
+在 user/user.h 中添加接口函数声明；
+在 user/usys.pl 中添加一个 entry；
+在 kernel/sysproc.c 中实现 sys_trace 函数.
+sysinfo 的步骤类似.
+
+实现 trace:
+在 kernel/proc.h 的 proc 结构体（每个进程的信息）中添加被 trace 的状态 trace_mask .
+使用 argint(0,&mask) 将接口函数的首个参数存入变量 mask ，将当前进程 *myproc() 的 trace_mask 复制为 mask.
+在 fork() 创建进程时（kernel/proc.c fork()），将父进程的 trace_mask 复制给子进程.
+在每个 system call 结束处（kernel/syscall.c syscall()）， num 为 system call 种类对应的数，如果当前该种 system call 被 trace 了（ p->trace_mask&(1<<num) ），输出进程，系统调用名和返回值等信息.（使用字符串数组保存 system call number 对应的系统调用名，如果添加了新的系统调用需要修改该表）
+
+一开始在测试 trace children 时超过了 30s 的时限（需要约 40s ），后来将 VMware 配置的处理器个数增加到 8 ，将用时提升到了 16-21s .
+
+- sysinfo
+
+使用 copyout(myproc()->pagetable,vaddr,(char*)&info,sizeof(info)) 将数据从 kernel 复制回 user space ， myproc()->pagetable,vaddr 指定进程对应的页表和虚拟地址， (char*)&info,sizeof(info) 给定数据的首地址和长度.
+
+在 kernel/kalloc.c 中添加 count_free() 函数统计 free memory . 空页的链表为 kmem.freelist . 遍历统计空页的个数再乘上一页的 byte 数 PGSIZE 即 free memory bytes.
+
+在 kernel/proc.c 中添加 count_proc() 函数统计进程数. 进程数组为 proc ，下标小于 NPROC ，统计其中 state 不为 UNUSED 的即为进程数.
+
+添加的函数需要在 kernel/defs.h 中声明.
