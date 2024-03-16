@@ -14,6 +14,8 @@
 
 pipe 保证 read 会等待 write ，所以不会出现没有读到 pingpong byte 的情况. 在进程使用完 pipe 的读/写 fd 后，可以用 close(fd) 关闭.
 
+一开始我只使用了一个 pipe ，也通过了测试，但要求是使用两个 pipe ，分别从父进程到子进程和从子进程到父进程. 所以修改了代码.
+
 - trace
 
 新添加 system call trace ，需要：
