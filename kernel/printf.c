@@ -133,3 +133,21 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+//Lab2 traps: backtrace
+void
+backtrace(void)
+{
+  uint64 fp,nxtfp;
+
+  printf("backtrace:\n");
+  fp=r_fp();
+
+  while(1)
+  {
+    printf("%p\n",*((uint64*)(fp-8)));
+    nxtfp=*((uint64*)(fp-16));
+    if(PGROUNDDOWN(fp)!=PGROUNDDOWN(nxtfp))break;
+    fp=nxtfp;
+  }
+}
