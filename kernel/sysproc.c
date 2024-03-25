@@ -135,6 +135,15 @@ sys_sysinfo(void)
 uint64
 sys_sigalarm(void)
 {
+  int n;
+  uint64 fnptr;
+
+  argint(0,&n);
+  argaddr(1,&fnptr);
+
+  myproc()->alarm_period=n;
+  myproc()->alarm_handler=fnptr;
+
   return 0;
 }
 

@@ -151,7 +151,7 @@ static uint64 (*syscalls[])(void) = {
 
 
 // store system call names
-char syscall_names[][8]={"",
+char syscall_names[][16]={"",
 "fork",
 "exit",
 "wait",

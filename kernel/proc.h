@@ -107,4 +107,10 @@ struct proc {
 
   // the bits specify which system calls to trace
   int trace_mask;
+
+  // store the alarm interval and ptr to handler
+  int alarm_period;
+  uint64 alarm_handler;
+  // ticks have passed since last handler call
+  int ticks_passed;
 };
