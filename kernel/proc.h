@@ -111,6 +111,9 @@ struct proc {
   // store the alarm interval and ptr to handler
   int alarm_period;
   uint64 alarm_handler;
+  int is_handling;
   // ticks have passed since last handler call
   int ticks_passed;
+  // store all registers when alarm interrupt and restore when sigreturn
+  struct trapframe *alarm_frame;
 };

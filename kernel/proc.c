@@ -149,7 +149,14 @@ found:
   // Initialize alarm args
   p->alarm_period=0;
   p->alarm_handler=0;
+  p->is_handling=0;
   p->ticks_passed=0;
+  // allocate alarm frame
+  if((p->alarm_frame = (struct trapframe *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
 
   return p;
 }
@@ -174,6 +181,10 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  // free page for alarm_frame
+  if(p->alarm_frame)
+    kfree((void*)p->alarm_frame);
 }
 
 // Create a user page table for a given process, with no user memory,

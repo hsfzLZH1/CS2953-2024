@@ -143,6 +143,7 @@ sys_sigalarm(void)
 
   myproc()->alarm_period=n;
   myproc()->alarm_handler=fnptr;
+  myproc()->ticks_passed=0;
 
   return 0;
 }
@@ -150,5 +151,10 @@ sys_sigalarm(void)
 uint64
 sys_sigreturn(void)
 {
-  return 0;
+  // copy alarm_frame back to trapframe
+  memmove(myproc()->trapframe,myproc()->alarm_frame,sizeof(struct trapframe));
+
+  myproc()->ticks_passed=0;
+  myproc()->is_handling=0;
+  return myproc()->trapframe->a0;
 }

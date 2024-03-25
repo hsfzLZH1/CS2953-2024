@@ -83,11 +83,15 @@ usertrap(void)
     {
       p->ticks_passed++;
 
-      if(p->ticks_passed==p->alarm_period)
+      if(p->ticks_passed==p->alarm_period && p->is_handling==0)
       // alarm interval expires, call alarm handler
+      // make sure no reentrant alarm calls
       {
+        p->is_handling=1;
+        // copy trapframe to alarm_frame
+        memmove(p->alarm_frame,p->trapframe,sizeof(struct trapframe));
         // set pc to alarm handler
-        p->trapframe->epc=p->alarm_handler; 
+        p->trapframe->epc=p->alarm_handler;
       }
     }
 
