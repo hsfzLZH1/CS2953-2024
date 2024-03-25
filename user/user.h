@@ -29,6 +29,8 @@ int uptime(void);
 int trace(int);
 struct sysinfo;
 int sysinfo(struct sysinfo*);
+int sigalarm(int ticks,void(*handler)());
+int sigreturn(void);
 #ifdef LAB_NET
 int connect(uint32, uint16, uint16);
 #endif

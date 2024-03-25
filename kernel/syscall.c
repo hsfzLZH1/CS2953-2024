@@ -103,6 +103,8 @@ extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
 extern uint64 sys_trace(void);
 extern uint64 sys_sysinfo(void);
+extern uint64 sys_sigalarm(void);
+extern uint64 sys_sigreturn(void);
 
 #ifdef LAB_NET
 extern uint64 sys_connect(void);
@@ -137,6 +139,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_close]   sys_close,
 [SYS_trace]   sys_trace, // lab1 add trace
 [SYS_sysinfo] sys_sysinfo, // lab1 add sysinfo
+[SYS_sigalarm]  sys_sigalarm, // lab2 add alarm
+[SYS_sigreturn] sys_sigreturn,
 #ifdef LAB_NET
 [SYS_connect] sys_connect,
 #endif
@@ -170,7 +174,9 @@ char syscall_names[][8]={"",
 "mkdir",
 "close",
 "trace",
-"sysinfo"};
+"sysinfo",
+"sigalarm",
+"sigreturn"};
 
 void
 syscall(void)
