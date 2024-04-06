@@ -75,8 +75,10 @@ thread_create(void (*func)())
   }
   t->state = RUNNABLE;
   // YOUR CODE HERE
+  // set return address
   ((uint64*)(t->stack))[0]=(uint64)(*func);
-  ((uint64*)(t->stack))[1]=(uint64)t->stack+1024;
+  // set stack pointer
+  ((uint64*)(t->stack))[1]=((uint64)t->stack)+STACK_SIZE;
 }
 
 void 

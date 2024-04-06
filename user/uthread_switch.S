@@ -77,6 +77,6 @@ thread_switch:
   ld t5, 232(a1)
   ld t6, 240(a1)
 
-  ld a1, 80(a1)
+  ld a1, 80(a1) /* restore a1 at last */
 
 	ret    /* return to ra */
