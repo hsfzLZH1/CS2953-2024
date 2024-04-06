@@ -122,6 +122,10 @@ main(int argc, char *argv[])
     keys[i] = random();
   }
 
+  // create and init mutex locks
+  for(int i=0;i<NBUCKET;i++)
+    pthread_mutex_init(&mutex[i],NULL);
+
   //
   // first the puts
   //
