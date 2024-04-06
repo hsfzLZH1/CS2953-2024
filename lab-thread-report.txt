@@ -1,0 +1,37 @@
+---
+tags: OS
+---
+
+# Lab3 thread
+
+- uthread
+
+`thread_switch(struct thread*old,struct thread*new)` 将旧线程切换为新进程当前寄存器存入 old 结构体，从结构体 new 读入新的寄存器中的值.
+
+保存的寄存器与 kernel/trampoline.S 中 uservec 和 userret 相同，包含 return address ra ，在 ret 后是新的 pc 的值； stack pointer sp ，指向线程栈顶.
+
+寄存器依次保存在 thread->stack 的低地址部分. 根据 calling convention ， thread_switch 传入的参数（ thread 结构体的首地址）分别在寄存器 a0,a1 中. thread_switch 将当前寄存器的值存入 a0 开始的一段地址，再从 a1 开始的一段地址载入 a1 之外寄存器的值，最后载入 a1 的值.
+
+由于每个线程在 RUNNABLE 状态下最多只有一份有效的 context ，所以将其保存在固定低地址处是合理的. （若栈大小超过数组大小，其他存储方式也会超出）
+
+thread_schedule 函数中只需用 thread_switch 切换线程； thread_create 创建线程时只需设置 ra 和 sp ，根据存储顺序二者分别为 ((uint64*)(t->stack))[0] 和 ((uint64*)(t->stack))[1] ， ra 的值为函数地址， sp 的值为线程对应栈的栈顶，由于栈从高地址向低地址增长，初始设置为 stack 数组的末地址. 当 thread_shedule 首次选择一个线程执行时， thread_switch 会将寄存器 ra ， sp 设置为对应值，开始在每个线程独立的栈上执行线程对应的函数.
+
+- pthread
+
+直接运行 ./ph 2 ，会发现丢失了一些关键字. 这是由于多个线程在 put 或 get 函数中可能同时访问或修改链表，产生了 race condition.
+
+使用 pthread 提供的互斥锁防止 race condition ，保证 ph.c 的正确性. 观察到每个 put 和 get 函数只会访问并修改一个链表. 对每个链表设置一个互斥锁，保证同一时刻每个链表只有至多一个线程正在访问，既能保证正确性，也可以让近似同一时刻至多能有五个 put 或 get 函数在访问不同的链表，不至于速度过慢.
+
+pthread_mutex_t mutex[NBUCKET] 对每个链表声明对应的互斥锁. 使用 pthread_mutex_init(&mutex[i],NULL) 初始化每个互斥锁. （第一次没加）
+
+在 put 和 get 函数即将开始访问链表时，即即将进入 critical section 时， pthread_mutex_lock(&mutex[i]) 获取该链表对应的互斥锁；访问结束，即退出 critical section 时， pthread_mutex_unlock(&mutex[i]) 解锁对应互斥锁. 让 critical section 尽可能短，加快运行速度.
+
+修改后解决了 race condition 问题，未丢失关键字且速度较快，通过测试.
+
+- barrier
+
+barrier() 函数中先获取互斥锁，解决不同线程 barrier() 之间的 race condition 问题.
+
+将到达 barrier() 的线程个数 bstate.nthread 增加 1 ，然后若与总线程数不同，说明仍有线程未到达该轮 barrier() ，使用 pthread_cond_wait 等待其他线程到达；若相同，说明该线程是最后一个到达该轮 barrier() 的线程，更新 bstate.round 和 bstate.nthread 为下一轮 barrier() 做准备，并使用 pthread_cond_broadcast 唤醒之前等待该线程的线程.
+
+pthread 条件变量的使用与 xv6 sleep,wakeup 类似，但这里不需要用 while 循环判断是否满足继续执行的条件，是由于这里继续执行的条件（ bstate.nthread==nthread ）足够简单，不存在 wakeup 后发现条件不满足的情况；且添加 while 循环判断条件后不能直接在 pthread_cond_broadcast 前清空 bstate.nthread ，需要记录额外信息，实现更加复杂.
