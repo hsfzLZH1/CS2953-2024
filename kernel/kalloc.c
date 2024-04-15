@@ -19,14 +19,17 @@ struct run {
 };
 
 struct {
-  struct spinlock lock;
-  struct run *freelist;
+  // one spinlock and runlist for each CPU
+  struct spinlock lock[NCPU];
+  struct run *freelist[NCPU];
 } kmem;
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  // init lock for each CPU
+  for(int i=0;i<NCPU;i++)
+    initlock(&(kmem.lock[i]), "kmem");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -56,10 +59,14 @@ kfree(void *pa)
 
   r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  push_off();// intr off
+  int c=cpuid();// get current core number
+  pop_off();// intr on, test here
+
+  acquire(&kmem.lock[c]);
+  r->next = kmem.freelist[c];
+  kmem.freelist[c] = r;
+  release(&kmem.lock[c]);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -70,27 +77,58 @@ kalloc(void)
 {
   struct run *r;
 
-  acquire(&kmem.lock);
-  r = kmem.freelist;
+  push_off();// intr off
+  int c=cpuid();// get current core number
+  pop_off();// intr on, test here
+
+  acquire(&kmem.lock[c]);
+  r = kmem.freelist[c];
   if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
+    kmem.freelist[c] = r->next;
+  release(&kmem.lock[c]);
+  // try to steal if r==0 here(no free page for this CPU)
+  // find another CPU with nonempty freelist,
+  // and steal
+//printf("normal %x\n",r);
+  if(!r)
+  {
+//printf("steal to %d\n",c);
+    for(int i=0;i<NCPU;i++)
+      if(c!=i)
+      {
+//printf("find %d\n",i);
+        acquire(&kmem.lock[i]);
+        if(kmem.freelist[i])
+        {
+          // remove from freelist of CPU[i]
+          r=kmem.freelist[i];
+          kmem.freelist[i]=r->next;
+        }
+        release(&kmem.lock[i]);
+        // maybe try to steal half of freelist
+        if(r)break;// success stealing
+      }
+  }
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+
   return (void*)r;
 }
 
 // Collect amount of free memory.
 // The length of run is the free page number.
+// UPD in Lab4: freelist for every CPU
 int
 count_free(void)
 {
   int cnt=0;
   struct run*r;
 
-  r=kmem.freelist;
-  for(r=kmem.freelist;r;r=r->next)
-    cnt++;
+  for(int i=0;i<NCPU;i++)
+  {
+    for(r=kmem.freelist[i];r;r=r->next)
+      cnt++;
+  }
   return cnt*PGSIZE;
 }
