@@ -61,7 +61,7 @@ kfree(void *pa)
 
   push_off();// intr off
   int c=cpuid();// get current core number
-  pop_off();// intr on, test here
+  pop_off();// intr on
 
   acquire(&kmem.lock[c]);
   r->next = kmem.freelist[c];
@@ -79,7 +79,7 @@ kalloc(void)
 
   push_off();// intr off
   int c=cpuid();// get current core number
-  pop_off();// intr on, test here
+  pop_off();// intr on
 
   acquire(&kmem.lock[c]);
   r = kmem.freelist[c];
@@ -87,16 +87,12 @@ kalloc(void)
     kmem.freelist[c] = r->next;
   release(&kmem.lock[c]);
   // try to steal if r==0 here(no free page for this CPU)
-  // find another CPU with nonempty freelist,
-  // and steal
-//printf("normal %x\n",r);
+  // find another CPU with nonempty freelist, and steal
   if(!r)
   {
-//printf("steal to %d\n",c);
     for(int i=0;i<NCPU;i++)
       if(c!=i)
       {
-//printf("find %d\n",i);
         acquire(&kmem.lock[i]);
         if(kmem.freelist[i])
         {
@@ -105,7 +101,7 @@ kalloc(void)
           kmem.freelist[i]=r->next;
         }
         release(&kmem.lock[i]);
-        // maybe try to steal half of freelist
+
         if(r)break;// success stealing
       }
   }
