@@ -56,7 +56,7 @@ binit(void)
   {
     initlock(&bcache.lockll[i], "bcache");// init lock for each linked list
 
-    bcache.head[i].prev=bcache.head[i].next=0;// init linked list
+    bcache.head[i].prev=bcache.head[i].next=&bcache.head[i];// init linked list
   }
 
   // add all buffer to linked list[0]
@@ -81,7 +81,7 @@ bget(uint dev, uint blockno)
 
   // Is the block already cached?
   acquire(&bcache.lockll[v]);
-  for(b = bcache.head[v].next; b ; b = b->next){
+  for(b = bcache.head[v].next; b!=&bcache.head[v] ; b = b->next){
     if(b->dev == dev && b->blockno == blockno){
       b->refcnt++;
       release(&bcache.lockll[v]);
@@ -98,7 +98,7 @@ bget(uint dev, uint blockno)
     int i=(v+j)%NBUK;// find not-in-use block in linked list[i]
 
     acquire(&bcache.lockll[i]);
-    for(b=bcache.head[i].next;b;b=b->next)
+    for(b=bcache.head[i].next;b!=&bcache.head[i];b=b->next)
     {
       if(b->refcnt==0)// evict b
       {
@@ -129,6 +129,7 @@ bget(uint dev, uint blockno)
         return b;
       }
     }
+    release(&bcache.lockll[i]);
   }
   
   panic("bget: no buffers");
@@ -165,13 +166,17 @@ brelse(struct buf *b)
   if(!holdingsleep(&b->lock))
     panic("brelse");
 
+  int v=buf_hshval(b->dev,b->blockno);
+
   releasesleep(&b->lock);
 
   // no need to maintain LRU list
-  // delete code here
+  acquire(&bcache.lockll[v]);
+  b->refcnt--;
+  release(&bcache.lockll[v]);
 }
 
-// Lab4: no global lock
+// Lab4: no global lock?
 void
 bpin(struct buf *b) {
   acquire(&bcache.lock);
@@ -185,5 +190,3 @@ bunpin(struct buf *b) {
   b->refcnt--;
   release(&bcache.lock);
 }
-
-
