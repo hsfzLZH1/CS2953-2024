@@ -1,0 +1,59 @@
+---
+tags: OS
+---
+
+# Lab4 lock
+
+- memory allocator
+
+kernel/kalloc.c 中对 physical memory allocator 原本的实现是用一个链表存储所有空闲页，在分配和释放页时使用 spinlock kmem.lock 避免 race condition . 如果同时有多个进程在调用 kfree 和 kalloc 函数，则未获得锁的进程需要等待获得锁的进程，并行度低.
+
+为了减少对锁的争用，改为对每个 CPU 维护一个独立的链表，对每个链表用一个锁进行保护. 即 kmem 结构体中改用长度为 NCPU 的数组.
+
+kinit() 对 NCPU 个 lock 初始化；之前 Lab 实现的统计空页 count_free 函数改为对每个 CPU 的链表长度求和.
+
+要求 freerange 将被释放的页加入调用该函数的 CPU （当前 CPU ）的链表中. freerange 调用 kfree(*pa) 释放 pa 所在页，在 kfree 中先用
+push_off();
+int c=cpuid();
+pop_off();
+获取当前 CPU 编号 c ，再获取 CPU[c] 的锁 kmem.lock[c] ，将释放页加入链表 kmem.freelist[c] 的头.
+
+kalloc() 从当前 CPU 链表中获取一个空页，若链表为空，从另一 CPU 的非空链表中偷取一页. 获取当前 CPU 编号 c ，获取 CPU[c] 的锁，然后若 kmem.freelist[c] 非空，取出头部元素即分配的页并释放锁，分配完成；若为空，释放 CPU[c] 的锁，枚举编号遍历其他 CPU 编号 i ，获取 CPU[i] 的锁，然后若 kmem.freelist[i] 非空，取出头部元素，释放锁，分配完成，该过程即从 CPU[i] 偷取了一个空页给 CPU[c] .
+
+对 freelist[c] 的访问和修改（ critical section ）均在获取 CPU[c] 的锁后进行，避免了 race condition ，保证页分配的正确执行.
+
+代码保证同一时刻一个 CPU 只会持有一个 kmem.lock ，不存在 hold and wait 情况，故 kmem.lock 不会出现死锁.
+
+修改后的代码允许同一时刻有多个 CPU 在访问某个链表，减少了多个 CPU 争抢 kmem.lock 的情况，提高了并行度.
+
+make grade 测试 kalloctest 有时需要 140s 左右，有时会 200s 超时.（测试发现笔记本连接电源时会 200s 超时，断开电源时会 140s 通过，离谱） race detector 运行一段时间未发现 race .
+
+进一步加快速度，可以考虑：
+1. CPU[c] 偷取其他 CPU 的空页时，改为从 CPU[c+1] 开始往后循环遍历. 这样就不是编号小的 CPU 优先被偷取，让不同 CPU 上的页数尽量均衡，减少偷取次数. 直接从链表 [c] 中分配只需获取一次锁，偷取至少需要获取两次，减少偷取次数能有效加快运行速度.
+2. 偷取时改为一次偷取多页，将偷取的其他页直接加入链表 [c] ，也能减少偷取次数.
+
+- buffer cache
+
+原先版本使用一个链表维护所有的 buffer block ，每次 get 或 release buffer 都会争抢 bcache.lock ，锁的争用严重，并行度低.
+
+按 buffer block 的 device 和 block number 值进行 hash （ hash 函数为 kernel/bio.c buf_hshval ），将 buffer block 分为 13 类，每一类分别用一个锁进行保护，减少锁的争用.
+
+每个链表的锁保护当前链表的结构（链表中每个 block 的 prev 和 next ）、链表中每个 block 的 dev ， blkno ， valid 和 refcnt 同一时刻至多只会被一个进程访问或修改. 每个 buffer block 的锁保护的是 data .
+
+binit 函数中需要对每个链表和锁进行初始化，并将所有 block 加入链表[0] 中.
+
+brelse 函数中，由于现在不需要实现 LRU ，只需计算当前需要释放的 block 的 hash 值 v ，获取链表[v] 的锁，并将 b->refcnt-- ，释放锁.
+
+bpin 和 bunpin 也会类似地对 b->refcnt 进行修改.
+
+bget(dev,blkno) 需要返回一个 device 和 block number 分别为 dev 和 blkno 的 block . 首先计算 dev ， blkno 的 hash 函数值 v ，先获取链表[v] 的锁，遍历整个链表判断是否有 dev,blkno 的 block . 如果有，直接返回. 如果没有，考虑从某个链表中 evict 一个没有进程使用， refcnt==0 的 block .
+
+如果 evict 的 block 在链表[v] 中，则替换后该 block 仍在链表[v] 中，不需要修改链表的结构. 故优先从链表[v] 中寻找 evict 的 block . 那么，如果没有在链表[v] 中找到 dev,blkno 的 block ，之后的过程是：释放链表[v] 的锁，从 v 开始循环枚举链表编号 i ，获取链表[i] 的锁，遍历链表[i] 找到 refcnt==0 可以 evict 的 block ，如果有，修改该 block b 的 dev,blkno,valid 和 refcnt ，如果 v!=i ，将 b 从链表[i] 取出加入链表[v] ，然后释放链表[i] 的锁.
+
+同一时刻一个进程只会最多持有一个链表的锁，不会出现 hold and wait 的情况，避免了死锁.
+
+但是，这样的实现有一个问题：在第一次遍历链表[v] 没有找到 dev,blkno 的 block 时，释放链表[v] 的锁后，可能有其他进程也在访问相同的 block ，将 dev,blkno 的 block 加入了链表[v] . 这样上述的过程会使链表[v] 中有两个 dev,blkno 的 block ，对 block 的修改不能同步，这导致我一开始实现的代码有一定概率不能通过测试.
+
+解决的方法是第一次在链表[v] 中没有找到 dev,blkno 的 block 时，先保持持有链表[v] 的锁，在链表[v] 中寻找可以 evict 的 block ，这样如果找到了，由于没有释放过锁，可以保证链表[v] 中不会有其他进程加入的 dev,blkno 的 block ；如果在链表[v] 中没有找到可以 evict 的 block （这种情况发生的次数不多），在其他链表中寻找，在重新获得链表[v] 的锁后和将 b 加入链表[v] 前，在链表[v] 中查找 dev,blkno 的 block ，如果有，设为 j ，将 b 的 blkno 修改为不合法的值， refcnt 设为 0 （下次直接 evict ）并返回 j ；如果没有，正常加入 b . 这样保证了所有链表中一定只有同一个 block 的一份拷贝.
+
+修改后通过了测试.

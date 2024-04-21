@@ -96,7 +96,7 @@ bget(uint dev, uint blockno)
   {
     int i=(v+j)%NBUK;// find not-in-use block in linked list[i]
 
-    if(j)acquire(&bcache.lockll[i]);
+    if(j)acquire(&bcache.lockll[i]);// no acquire lock again
     for(b=bcache.head[i].next;b!=&bcache.head[i];b=b->next)
     {
       if(b->refcnt==0)// evict b
@@ -120,12 +120,12 @@ bget(uint dev, uint blockno)
             if(j->dev == dev && j->blockno == blockno)// find same page already in linked list
             {
               b->blockno++;// make b invalid
-              b->refcnt=0;
+              b->refcnt=0;// ready to be evict
               b->next=bcache.head[v].next;
               b->prev=&bcache.head[v];
               bcache.head[v].next->prev=b;
-              bcache.head[v].next=b;
-              b=j;
+              bcache.head[v].next=b;// add to linked list[v]
+              b=j;// return the block dev,blkno already in the linked list
               release(&bcache.lockll[v]);
 
               acquiresleep(&b->lock);
