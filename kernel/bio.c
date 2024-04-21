@@ -27,7 +27,6 @@
 #define NBUK 13
 
 struct {
-  struct spinlock lock;
   struct buf buf[NBUF];
 
   // Linked list of all buffers with hash value i
@@ -42,15 +41,13 @@ struct {
 int
 buf_hshval(int dev,int blknum)
 {
-  return (dev+blknum)%NBUK;
+  return ((dev+blknum)%NBUK+NBUK)%NBUK;
 }
 
 void
 binit(void)
 {
   struct buf *b;
-
-  initlock(&bcache.lock,"bcache");// init global lock
 
   for(int i=0;i<NBUK;i++)// for each bucket
   {
@@ -61,6 +58,7 @@ binit(void)
 
   // add all buffer to linked list[0]
   for(b = bcache.buf; b < bcache.buf+NBUF; b++){
+    b->dev=b->blockno=0;
     b->next = bcache.head[0].next;
     b->prev = &bcache.head[0];
     initsleeplock(&b->lock, "buffer");
@@ -89,7 +87,8 @@ bget(uint dev, uint blockno)
       return b;
     }
   }
-  release(&bcache.lockll[v]);
+  //release(&bcache.lockll[v]);
+  // do not release lock here
 
   // Not cached.
   // find an cached block not in use and evict
@@ -97,7 +96,7 @@ bget(uint dev, uint blockno)
   {
     int i=(v+j)%NBUK;// find not-in-use block in linked list[i]
 
-    acquire(&bcache.lockll[i]);
+    if(j)acquire(&bcache.lockll[i]);
     for(b=bcache.head[i].next;b!=&bcache.head[i];b=b->next)
     {
       if(b->refcnt==0)// evict b
@@ -116,6 +115,22 @@ bget(uint dev, uint blockno)
 
           // add b to linked list[v]
           acquire(&bcache.lockll[v]);
+          struct buf*j;
+          for(j = bcache.head[v].next; j!=&bcache.head[v] ; j = j->next)
+            if(j->dev == dev && j->blockno == blockno)// find same page already in linked list
+            {
+              b->blockno++;// make b invalid
+              b->refcnt=0;
+              b->next=bcache.head[v].next;
+              b->prev=&bcache.head[v];
+              bcache.head[v].next->prev=b;
+              bcache.head[v].next=b;
+              b=j;
+              release(&bcache.lockll[v]);
+
+              acquiresleep(&b->lock);
+              return b;
+            }
           b->next=bcache.head[v].next;
           b->prev=&bcache.head[v];
           bcache.head[v].next->prev=b;
@@ -159,7 +174,6 @@ bwrite(struct buf *b)
 }
 
 // Release a locked buffer.
-// Move to the head of the most-recently-used list.
 void
 brelse(struct buf *b)
 {
@@ -179,14 +193,16 @@ brelse(struct buf *b)
 // Lab4: no global lock?
 void
 bpin(struct buf *b) {
-  acquire(&bcache.lock);
+  int v=buf_hshval(b->dev,b->blockno);
+  acquire(&bcache.lockll[v]);
   b->refcnt++;
-  release(&bcache.lock);
+  release(&bcache.lockll[v]);
 }
 
 void
 bunpin(struct buf *b) {
-  acquire(&bcache.lock);
+  int v=buf_hshval(b->dev,b->blockno);
+  acquire(&bcache.lockll[v]);
   b->refcnt--;
-  release(&bcache.lock);
+  release(&bcache.lockll[v]);
 }
