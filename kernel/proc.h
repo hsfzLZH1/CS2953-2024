@@ -116,4 +116,7 @@ struct proc {
   int ticks_passed;
   // store all registers when alarm interrupt and restore when sigreturn
   struct trapframe *alarm_frame;
+
+  // share page within kernel and user
+  struct usyscall *usyscallpage;
 };
