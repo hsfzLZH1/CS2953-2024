@@ -80,6 +80,30 @@ int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  uint64 base,mask;
+  int len;
+  argaddr(0,&base);
+  argint(1,&len);
+  argaddr(2,&mask);
+
+  // scan at most 32*32 pages
+  if(len>1024)return -1;
+
+  uint32 buf[32];
+  for(int i=0;i<32;i++)buf[i]=0;
+
+  for(int i=0;i<len;i++)
+  {
+    int va=base+i*PGSIZE;
+    uint32*pte=(uint32*)walk(myproc()->pagetable,va,0);
+    buf[i>>5]|=((((*pte)&PTE_A)>>6)<<(i&31));// check PTE_A
+
+    (*pte)=(*pte|PTE_A)^(PTE_A);// set PTE_A to 0
+  }
+
+  // the number of bytes is ceil(len/8)
+  copyout(myproc()->pagetable,mask,(char*)buf,(len+7)/8);
+
   return 0;
 }
 #endif
