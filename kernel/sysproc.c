@@ -104,7 +104,7 @@ sys_pgaccess(void)
   // the number of bytes is ceil(len/8)
   copyout(myproc()->pagetable,mask,(char*)buf,(len+7)/8);
 
-  return 0;
+  return len;
 }
 #endif
 

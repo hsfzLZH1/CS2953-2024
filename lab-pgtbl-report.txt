@@ -1,0 +1,57 @@
+---
+tags: OS
+---
+
+# Lab5 pgtbl
+
+- task1
+
+Step 1. 为每个进程创建的记录 pid 的页的虚拟地址为 USYSCALL ，在 memlayout.h 中定义. 根据 usyscall 结构体的定义，该页的前 4 个 byte 是记录 pid 的 int .
+
+Step 2. 在 kernel/proc.h 的 proc 结构体的域中添加 struct usyscall*usyscallpage 保存记录 pid 的页的地址.
+
+Step 3. 在 kernel/proc.c 的 allocproc() 函数中，即创建进程时，类似分配 trapframe page ，分配 usyscall page . 如果分配失败，释放进程并终止. 否则用 p->usyscallpage->pid=p->pid 将当前进程 pid 记录在 usyscall page ，并继续创建进程.
+
+分配 usyscall page 的代码应当在调用 proc_pagetable() 之前（像文档中代码那样放在 set up context 前是不行的），否则 proc_pagetable() 函数中无法将页表的虚拟地址 USYSCALL 映射到正确的（物理地址） usyscall page .
+
+Step 4. 在 kernel/proc.c 的 proc_pagetable() 函数中，通过 mappages(pagetable,USYSCALL,PGSIZE,(uint64)(p->usyscallpage),PTE_R|PTE_U) 将页表的虚拟地址 USYSCALL 映射到物理地址 usyscall page . 其中 PTE_R|PTE_U 指定了该页的访问权限是用户态可读.
+
+Step 5. 在 kernel/proc.c freeproc() 释放进程时，类似释放 trapframe page 的释放 usyscall page .
+
+Step 6. 在 kernel/proc.c proc_freepagetable() 函数中，释放页表前需要取消映射，用 uvmunmap(pagetable, USYSCALL,1,0) 取消虚拟地址 USYSCALL 对应页的映射.
+
+运行 ./pgtbltest 通过了 ugetpid_test .
+
+- task2
+
+在 kernel/defs.h 中加入 vmprint 函数的声明，以便在 exec.c 中调用.
+
+在 kernel/vm.c 中实现 vmprint 函数.
+vmprint 函数中使用静态变量 static int depth=0 记录当前访问页表的深度.
+如果深度为 0 ，先输出 page table [address of pagetable] .
+类似 freewalk 函数的实现，用 for(int i=0;i<512;i++)pte_t pte=pagetable[i]; 遍历页表项：
+如果 pte 的 valid bit 上的值为 1 ，说明该 PTE 指向了一个页，用 PTE2PA(pte) 获取指向的物理页首地址；
+将静态变量 depth 增加 1 ，输出当前页表项（先输出 depth 个 .. 表示此页表的深度，然后是 i : pte [1] pa [2] ， [1] 为该页表项 pte ， [2] 为指向的物理页首地址）；
+然后如果 pte 的 R,W,X 都不为 1 ，即 (pte&(PTE_R|PTE_W|PTE_X))==0 ，说明 PTE2PA(pte) 仍是一个页表，递归打印；否则说明 PTE2PA(pte) 是一个进程可访问的页，已经访问到页表的最底层，不再递归打印；
+最后将静态变量 depth 减少 1 .
+
+在 kernel/exec.c 中在 return argc; 前插入 if(p->pid==1)vmprint(p->pagetable) ，在第一个进程 init 中打印 page table.
+
+- task3
+
+int pgaccess(void *base, int len, void *mask); base 为要检查访问状态的首个虚拟页地址， len 为连续检查访问状态的虚拟页个数， mask 是存储访问状态结果的 bit mask 首地址.
+
+kernel/riscv.h 中添加 #define PTE_A (1L << 6) .
+
+kernel/sysproc.c sys_pgaccess 的实现中，先使用 argaddr(0,&base);argint(1,&len);argaddr(2,&mask); 获取参数；
+限制最多查询 1024 个页，如果 len>1024 ，返回 -1 ；
+否则查询页数 <=1024 ，可以用 uint32 buf[32] 存储结果. 先将 buf 中所有位初始化为 0 ；
+从前往后遍历每一页，第 i 页（编号 i 从 0 到 len-1 ）的首地址为 va=base+i*PGSIZE ，使用过 walk(myproc()->pagetable,va,0) 在当前进程的页表中找到指向该虚拟地址的 PTE ，第 3 个参数 0 表示如果访问到的页为空不会创建，返回值为指向第 i 页 PTE 的指针 pte ，将其转化为 uint32* 类型方便后续操作；
+pte access bit 上的值即 (((*pte)&PTE_A)>>6) ，希望将其放到 buf 的第 i 个 bit ，一个 uint32 是 32 个 bit ，故需要修改 buf[i/32] 的第 i%32 位，实现为 buf[i>>5]|=((((*pte)&PTE_A)>>6)<<(i&31)); ，其中 i>>5 即 i/32 ， i&31 即 i%32 ；
+查询后需要将 pte 的 access bit 重置为 0 ，先 |=PTE_A 将该位设为 1 ，在 ^=PTE_A 将该位置为 0 ，即 (*pte)=(*pte|PTE_A)^(PTE_A) .
+
+最后用 kernel/vm.c 中的 copyout 函数将 buf 中的查询结果复制到 user space mask 开始的一段，实现为 copyout(myproc()->pagetable,mask,(char*)buf,(len+7)/8) ，其中第 4 个参数是拷贝的 byte 数，由于 len 可能不是 8 的倍数所以是 len/8 上取整，第 len 位之后均为初始化的值 0 .
+
+按文档中要求， sys_pgaccess() 正常执行后返回 len .
+
+运行 ./pgtbltest 通过了 pgaccess_test .
