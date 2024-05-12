@@ -131,13 +131,15 @@ found:
     release(&p->lock);
     return 0;
   }
-
+  
+  #ifdef LAB_PGTBL
   // Allocate usyscall page.
   if((p->usyscallpage=(struct usyscall*)kalloc())==0){ // alloc fail
     freeproc(p);
     release(&p->lock);
   }
   p->usyscallpage->pid=p->pid;
+  #endif
 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
@@ -178,10 +180,12 @@ freeproc(struct proc *p)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
 
+  #ifdef LAB_PGTBL
   // free the pre-allocated usyscall page
   if(p->usyscallpage)
     kfree((void*)p->usyscallpage);
   p->usyscallpage=0;
+  #endif
 
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
@@ -212,12 +216,14 @@ proc_pagetable(struct proc *p)
   if(pagetable == 0)
     return 0;
 
+  #ifdef LAB_PGTBL
   // map the usyscall page at USYSCALL.
   if(mappages(pagetable,USYSCALL,PGSIZE,
               (uint64)(p->usyscallpage),PTE_R|PTE_U)<0){
     uvmfree(pagetable,0);
     return 0;
   }
+  #endif
 
   // map the trampoline code (for system call return)
   // at the highest user virtual address.
@@ -246,7 +252,9 @@ proc_pagetable(struct proc *p)
 void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
+  #ifdef LAB_PGTBL
   uvmunmap(pagetable, USYSCALL, 1, 0);
+  #endif
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);

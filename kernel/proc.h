@@ -117,6 +117,8 @@ struct proc {
   // store all registers when alarm interrupt and restore when sigreturn
   struct trapframe *alarm_frame;
 
+  #ifdef LAB_PGTBL
   // share page within kernel and user
   struct usyscall *usyscallpage;
+  #endif
 };
