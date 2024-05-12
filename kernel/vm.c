@@ -391,10 +391,33 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     va0 = PGROUNDDOWN(dstva);
     if(va0 >= MAXVA)
       return -1;
+
     pte = walk(pagetable, va0, 0);
+    if(pte==0||((*pte)&PTE_V)==0)return -1;
+    if((*pte)&PTE_RSW1)// write to a CoW page
+    {
+      // alloc a new page and copy
+      uint64 pa=PTE2PA(*pte);
+      uint flags=PTE_FLAGS(*pte);
+      flags^=PTE_RSW1;// reset CoW bit
+      flags|=PTE_W;// can be written
+      char*mem=kalloc();
+      if(mem==0)// no free memory
+      {
+        printf("CoW copyout: no free memory\n");
+        setkilled(myproc());
+      }
+      else // success alloc
+      {
+        memmove(mem,(char*)pa,PGSIZE);
+        kfree((void*)pa);
+        *pte=PA2PTE(mem)|flags;
+      }
+    }
     if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
        (*pte & PTE_W) == 0)
       return -1;
+
     pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)

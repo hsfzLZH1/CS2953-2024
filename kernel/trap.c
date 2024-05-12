@@ -68,32 +68,40 @@ usertrap(void)
   } else if(r_scause()==15){
     // write page fault
     uint64 va=PGROUNDDOWN(r_stval());
-    pte_t*pte=walk(p->pagetable,va,0);
-    if(pte==0||((*pte)&PTE_V)==0)panic("usertrap(): write to invalid page\n");
-
-    if((*pte)&PTE_RSW1)// CoW page fault
+    if(va>=MAXVA)// kill, not panic
     {
-      uint64 pa=PTE2PA(*pte);
-      uint flags=PTE_FLAGS(*pte);
-      flags^=PTE_RSW1;// reset CoW bit
-      flags|=PTE_W;// can be written
-      char*mem=kalloc();
-      if(mem==0)// no free memory
-      {
-        printf("CoW: no free memory\n");
-        setkilled(p);// kill the process
-      }
-      else // success alloc
-      {
-        memmove(mem,(char*)pa,PGSIZE);
-        kfree((void*)pa);
-        *pte=PA2PTE(mem)|flags;
-      }
+      printf("address above MAXVA");
+      setkilled(p);
     }
     else
     {
-      printf("usertrap(): unexpected write page fault\n");
-      setkilled(p);
+      pte_t*pte=walk(p->pagetable,va,0);
+      if(pte==0||((*pte)&PTE_V)==0)panic("usertrap(): write to invalid page\n");
+
+      if((*pte)&PTE_RSW1)// CoW page fault
+      {
+        uint64 pa=PTE2PA(*pte);
+        uint flags=PTE_FLAGS(*pte);
+        flags^=PTE_RSW1;// reset CoW bit
+        flags|=PTE_W;// can be written
+        char*mem=kalloc();
+        if(mem==0)// no free memory
+        {
+          printf("CoW: no free memory\n");
+          setkilled(p);// kill the process
+        }
+        else // success alloc
+        {
+          memmove(mem,(char*)pa,PGSIZE);
+          kfree((void*)pa);
+          *pte=PA2PTE(mem)|flags;
+        }
+      }
+      else
+      {
+        printf("usertrap(): unexpected write page fault\n");
+        setkilled(p);
+      }
     }
   } else if((which_dev = devintr()) != 0){
     // ok
