@@ -1,0 +1,37 @@
+Lab6 cow
+
+修改 conf/lab.mk LAB=cow 后，无法通过编译，原因是编译时没有定义宏 LAB_PGTBL 导致 USYSCALL 和 struct usyscall 没有定义. 在 Lab5 Task1 添加部分前后加上
+#ifdef LAB_PGTBL
+...
+#endif
+后可通过编译.
+
+在 kernel/riscv.c 中定义 PTE 中用于判断是否是 CoW 页的 bit #define PTE_RSW1 (1L << 8) ，即 Reserved for software bits 中较低的一位.
+
+在 kernel/vm.c uvmcopy 函数中，原先会为每个被复制的页申请一个新页并复制内容，现在改为只将子进程的页表项指向父进程的对应页：
+循环遍历父进程的页首虚拟地址 i ，通过 walk 获取 pte . 
+如果该 pte 的 PTE_W 位有值，说明父进程可写，将其改为 CoW 页，将 PTE_W 位设置为 0 并将 PTE_RSW1 位设置为 1 . 
+（如果父进程该页已经是 CoW 页，则复制后仍希望是 CoW 页，不需要对 PTE 进行修改；如果父进程该页是只读，即 PTE_W 位为 0 ，则父子进程不会对该页进行修改，该页可共享无需复制）
+然后将子进程页表中首地址为 i 的页指向相同的 PTE .
+
+在 kernel/trap.c usertrap() 中增加对 page fault 的处理（增加部分为 L68-105）. 如果进程要写 CoW 页，由于该页 PTE_W 位的值为 0 ，会产生 user trap ，此时 scause 寄存器中的值为 15 表示 store page fault ， stval 寄存器中的值为产生 page fault 的地址.
+page fault 所在页的首地址为 uint64 va=PGROUNDDOWN(r_stval()) ， walk 该页得到 pte_t* pte=walk(p->pagetable,va,0) ，
+如果 pte 的 PTE_RSW1 位为 1 ，说明该页是 CoW 页，类似 uvmcopy 中原先的实现申请一个新页进行复制， char*mem=kalloc() 分配新页，
+如果 mem==0 说明分配失败，没有 free memory 杀死进程，
+否则将 CoW page 的内容复制到新页，将当前进程页表 va 指向新页，新 pte 的 flags 位从 CoW 页复制，但将 PTE_RSW1 位设置为 0 ， PTE_W 位设置为 1 ，新页是普通可写的页；
+否则说明不是 CoW page fault ，直接 setkilled( p) 杀死当前进程.
+
+现在一个物理页可能有多个虚拟页指向，在没有虚拟页指向时才能释放该页. 在 kernel/kalloc.c 中维护每个物理页的 reference count int refcnt[PHYSTOP/PGSIZE] ，下标即每个物理页的编号，用物理地址/PGSIZE 即可得到.
+在 freerange 函数中将每个页的 refcnt 初始化为 1 （因为之后要 kfree 将 refcnt--）；
+在 kfree 函数中将释放页的 refcnt-- ，如果 refcnt==0 再继续真正释放该页，否则说明仍有其他 PTE 指向该页，不能 free ；
+在 kalloc 函数中将分配页的 refcnt 设置为 1 ；
+在 uvmcopy 中子进程与父进程指向同一物理页， refcnt++ ；
+在 usertrap CoW page fault 部分创建新页，将当前进程页表改为指向新页时， kfree(旧物理页) .
+
+运行 cowtest 可通过 simple 和 three .
+
+在 kernel/vm.c copyout 函数中，如果遇到用户页表中的 CoW 页，同样需要申请一个新页并复制. 直接复制 kernel/trap.c usertrap() 中的代码.
+
+通过了 cowtest ，但 usertests 未通过 MAXVAplus . 原因是 scause==15 时，如果访问地址 va 超过了 MAXVA ， walk 会 panic ，而期望的结果应当是杀死进程. 在 kernel/trap.c usertrap() 中 walk 前判断如果 va>=MAXVA ，报错并杀死进程.
+
+修改后通过了 cowtest 和 usertests -q .
