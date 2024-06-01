@@ -105,6 +105,7 @@ extern uint64 sys_trace(void);
 extern uint64 sys_sysinfo(void);
 extern uint64 sys_sigalarm(void);
 extern uint64 sys_sigreturn(void);
+extern uint64 sys_symlink(void);// Lab7 Task2 add symlink
 
 #ifdef LAB_NET
 extern uint64 sys_connect(void);
@@ -141,6 +142,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_sysinfo] sys_sysinfo, // lab1 add sysinfo
 [SYS_sigalarm]  sys_sigalarm, // lab2 add alarm
 [SYS_sigreturn] sys_sigreturn,
+[SYS_symlink] sys_symlink, // lab7 add symlink
 #ifdef LAB_NET
 [SYS_connect] sys_connect,
 #endif
@@ -176,7 +178,8 @@ char syscall_names[][16]={"",
 "trace",
 "sysinfo",
 "sigalarm",
-"sigreturn"};
+"sigreturn",
+"symlink"};
 
 void
 syscall(void)
