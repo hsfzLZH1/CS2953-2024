@@ -273,6 +273,12 @@ create(char *path, short type, short major, short minor)
   ip->nlink = 1;
   iupdate(ip);
 
+  if(type==T_SYMLINK)
+  {
+    printf("trying to create symlink with syscall open\n");
+    goto fail;
+  }
+
   if(type == T_DIR){  // Create . and .. entries.
     // No ip->nlink++ for ".": avoid cyclic ref count.
     if(dirlink(ip, ".", ip->inum) < 0 || dirlink(ip, "..", dp->inum) < 0)
@@ -328,6 +334,34 @@ sys_open(void)
       return -1;
     }
     ilock(ip);
+    // handle symlink open
+    if(ip->type==T_SYMLINK && !(omode&O_NOFOLLOW))
+    {
+      struct inode*history[NINODE];
+      int depth;
+      history[0]=ip;
+      for(depth=1;depth<NINODE;depth++)
+      {
+        if(readi(ip,0,(uint64)path,0,MAXPATH)<0 || (ip=namei(path))==0)
+        // read target path failed or target path not exists
+        {
+          for(int j=0;j<depth;j++)iunlockput(history[j]);
+          end_op();
+          return -1;
+        }
+        if(holdingsleep(&ip->lock))// cycle reference
+        {
+          for(int j=0;j<depth;j++)iunlockput(history[j]);
+          end_op();
+          return -1;
+        }
+        ilock(ip);
+        history[depth]=ip;
+        if(ip->type!=T_SYMLINK)break;
+      }
+      // successfully find non-symlink target, release history lock
+      for(int j=0;j<depth;j++)iunlockput(history[j]);
+    }
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -507,5 +541,45 @@ sys_pipe(void)
 uint64
 sys_symlink(void)
 {
-  return -1;
+  char target[MAXPATH],path[MAXPATH];
+  int len;
+  if((len=argstr(0,target,MAXPATH))<0||argstr(1,path,MAXPATH)<0)return -1;
+
+  struct inode*ip,*dp;
+  char name[DIRSIZ];
+
+  begin_op();
+  if((dp=nameiparent(path,name))==0)return 0;
+  ilock(dp);
+  if((ip=dirlookup(dp,name,0)))
+  {
+    // path already exists
+    ilock(ip);
+    itrunc(ip);
+    ip->type=T_SYMLINK;
+  }
+  else
+  {
+    ip=ialloc(dp->dev,T_SYMLINK);
+    if(ip==0){iunlockput(dp);return -1;}
+    ilock(ip);
+    ip->major=ip->minor=1;
+    ip->nlink=1;
+    iupdate(ip);
+  }
+  // ip is a locked inode with type T_SYMLINK
+  // write target to ip .
+  // the length of path fits in one block
+  if(writei(ip,0,(uint64)target,0,len)<len || dirlink(dp, name, ip->inum) < 0)
+  {
+    ip->nlink=0;
+    iupdate(ip);
+    len=-1;
+  }
+  iunlockput(ip);
+  iunlockput(dp);
+  end_op();
+
+  if(len==-1)return -1;
+  return 0;
 }
