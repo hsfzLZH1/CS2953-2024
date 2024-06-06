@@ -1,0 +1,66 @@
+# Lab7 File System
+
+- Task1 increase file size
+
+将 NDIRECT （和 MAXFILE 均定义在 kernel/fs.h 中）修改为 11 . 将 kernel/file.h struct inode 和 kernel/fs.h struct dinode 的 addrs 数组长度修改为 NDIRECT+2 .
+
+修改后 ip->addrs[0] 到 ip->addrs[NDIRECT-1] 为指向文件前 NDIRECT 个块的指针； ip->addrs[NDIRECT] 是指向一级块表的指针； ip->addrs[NDIRECT+1] 是指向二级块表的指针. 每一级块表包含 NINDIRECT=$1024\times 8/32=256$ 个指针，故修改后文件大小最大为 $11+256+256\times 256=65803$ 个块，故将 MAXFILE 修改为 (NDIRECT + NINDIRECT + NINDIRECT*NINDIRECT) .
+
+修改 bmap 使其支持大文件. bmap(ip,bn) 返回 inode ip 第 bn 个数据块的编号.
+如果 bn 未超过直接块与一级块表的范围，处理与之前相同；
+否则 bn 减去 NDIRECT+NINDIRECT 后为在二级块表中的 offset ，如果 <NINDIRECT*NINDIRECT 说明未超过二级块表的范围，则（类似一级块表）
+1. 用 bread 读取二级块表的块，地址为 ip->addrs[NDIRECT+1] （如果为 0 说明原先二级块表不存在，先使用 balloc 为其分配一个块）；
+2. 将二级块表的数据当做 uint 数组 a 处理， a=(uint*)bp->data ；
+3. 访问块在二级块表的第 bn/NINDIRECT 个一级块表上， a[bn/NINDIRECT] 即为该一级块表地址，用 bread 读取，同样如果不存在则使用 balloc 分配；
+4. 将一级块表的数据当做 uint 数组 a 处理，访问块是一级块表的第 bn%NINDIRECT 项，返回 a[bn%NINDIRECT] .
+
+如果在过程中分配了新的块，修改了某个块 bp 的内容，需要 log_write(bp) 将修改写入 log . 使用完 bread 的块后，需要 brelse 释放.
+
+同样需要修改 itrunc . itrunc(ip) 释放 inode ip 的所有数据块，将其截断为空.
+类似一级块表的释放，如果 ip->addrs[NDIRECT+1] 不为 0 ，说明存在二级块表，使用 bread 读取二级块表，将数据当做 uint 数组 a 处理，
+for(j=0;j<NINDIRECT;j++) 遍历二级块表的每项，如果 a[j] 不为 0 说明该项指向一级页表，与已有的实现相同，先释放一级页表的每项，再释放一级页表所在的块.
+释放二级页表的每项之后，释放二级页表所在块并在 inode 中将 ip->addrs[NDIRECT+1] 设为 0 .
+
+修改后通过了 bigfile 测试，但运行时间较长. 本地测试 bigfile 需要约 500s ， usertests -q 需要约 800s .
+
+由于 LAB_FS 将文件系统的块数量修改成了 200000 （kernel/param.h），对应块分配 bitmap 的大小变为 200000/(BSIZE*8)+1=25 ， itrunc 可能会修改超过 25 个块，而 itrunc 会出现在 begin_op() 和 end_op() 之间，即一条指令可能修改 25>MAXOPBLOCKS=10 个块，这会导致 log 的大小不够. 可以考虑将 MAXOPBLOCKS 修改为 30 ，但不修改也能通过测试.
+
+- Task2 symbolic link
+
+在 Makefile ifeq ($(LAB),fs) UPROGS += \ 中添加 $U/_symlinktest .
+
+增加系统调用 symlink . 
+在 kernel/sysfile.c 中添加函数 uint64 sys_symlink(void) ，
+kernel/syscall.c 中添加 extern uint64 sys_symlink(void); ， sys_connect 中添加 [SYS_symlink] sys_symlink 项，
+在 user/user.h 中声明 int symlink(char* target,char* path); ，
+user/usys.pl 中加入 entry .
+
+kernel/stat.h 中添加宏 #define T_SYMLINK 4 表示软链接文件， kernel/fcntl.h 中添加宏 #define O_NOFOLLOW 0x800 表示像正常文件一样打开软链接文件.
+
+int symlink(char* target,char* path) 将 path 对应文件设置为软链接文件，指向路径 target ，成功返回 0 ，不成功返回 -1 .
+
+实现 sys_symlink .
+使用 argstr 获取参数字符串 target 和 path . 字符串的长度不会超过路径的长度上限 MAXPATH ，故使用 argstr(0,target,MAXPATH) 读取. len 为 target 的长度.
+使用 dp=nameiparent(path,name) 获取 path 所在目录的 inode ，如果 dp 为 0 说明错误，返回 -1 .
+ilock(dp) 获取 dp 的锁，接下来可以读取 inode dp 的内容.
+ip=dirlookup(dp,name,0) 在文件夹 dp 中查找路径 path 指向的文件（文件名为 name 的文件）. 
+如果 ip 不为 0 说明该文件已经存在，获取 ip 的锁， itrunc 清空文件原有的内容， ip->type=T_SYMLINK 将文件类型设置为软链接文件，使用 writei(ip,0,(uint64)target,0,len) （第二个参数 0 说明地址来自 kernel ，将 target 地址开始长度为 len 的串写入 ip 文件 offset 为 0 的位置，由于 MAXPATH 小于一个块的大小， writei 最多写一个块）将路径 target 写入文件，如果返回值 <len 说明写入出错， ip->nlink=0 删除文件， iupdate(ip) 写回更新并返回；
+否则文件不存在，类似 create 函数中的实现， ialloc(dp->dev,T_SYMLINK) 创建一个文件类型为 T_SYMLINK 的 inode ，获取 inode ip 的锁，将 ip->nlink 设置为 1 ， iupdate 写回更新， writei 写入 target 路径，dirlink(dp, name, ip->inum) 在父目录 dp 下创建名为 name 的文件（即 path 对应的文件），其 inode 编号为 ip->inum ，如果返回值 <0 说明出错，删除文件，写回更新并返回.
+最后结束时 iunlockput 依次释放 ip 和 dp 的锁并减少 reference count .
+
+由于 sys_symlink 会修改磁盘内容，函数主要部分前后需要加上 begin_op() 和 end_op() .
+
+一开始的版本在目录下有该文件的情况下仍然尝试 dirlink ，该函数发现已有该文件返回 -1 后又 ip->nlink=0 删去了该文件，导致 iunlock 时 ip->nlink<1 未通过 concurrent symlinks 测试.
+
+修改 sys_open 处理打开软链接文件的情况.
+这里认为无法用 O_CREATE 模式打开软链接文件. 如果 create 函数发现文件类型为 T_SYMLINK ，报错（测试中未出现该情况）.
+if(ip->type==T_SYMLINK && !(omode&O_NOFOLLOW)) 如果类型为 T_SYMLINK 且不为 O_NOFOLLOW 模式，打开软链接文件时递归查找非软链接文件的 target .
+为防止循环链接，用 int 数组 history 记录访问到的软链接文件的 inode 编号 inum ，数组长度（也是最大递归深度）设置为 NINODE=50 . 将正在打开的软链接文件的 inode 记为 history[0] .
+
+使用 readi(ip,0,(uint64)path,0,MAXPATH) 将当前软链接文件的 target 读取到字符串数组 path ， nxt=namei(path) 获取 target 文件对应的 inode . 然后不需要再使用原软链接文件的 inode ip ，可以 iunlockput(ip) 释放. ip=nxt 跳到下一个文件， ilock 获取锁，与之前访问历史比较，如果有相同说明出现循环，报错，否则记录在 history 中，继续递归. 如果发现当前文件不是软链接文件，即 ip->type!=SYMLINK ，结束递归.
+
+发现出错返回 -1 前需要先 iunlockput(ip) 释放当前 inode ip 的锁并减少 reference count ，并 end_op() （因为开始时有 begin_op() ）.
+
+该递归过程一个进程同一时刻只会持有一个 inode 的 lock ，避免了死锁.
+
+修改后通过了 symlinktest 和 usertests -q .
