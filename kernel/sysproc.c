@@ -186,7 +186,39 @@ sys_sigreturn(void)
 uint64
 sys_mmap(void)
 {
-  return 0xffffffffffffffff;
+  size_t length;
+  int prot,flags,fd;
+  struct file*f;
+  argaddr(1,&length);
+  argint(2,&prot);
+  argint(3,&flags);
+  argint(4,&fd);
+  f=myproc()->ofile[fd];
+
+  // find an unused region in the process's address space to map the file
+  // the initial address is page-aligned
+  uint64 addr=PGROUNDUP(myproc()->sz);
+  uint64 MAXSZ=255ull*512ull*512ull*PGSIZE;
+  // ensure not overflow pagetable
+  if(length>=MAXSZ||addr+length>=MAXSZ)return 0xffffffffffffffff;
+  myproc()->sz=addr+length;
+
+  // find an vma to record mmap
+  int t=-1;
+  for(int k=0;k<16;k++)
+    if(myproc()->vmalist[k].length==0)
+      {t=k;break;}
+  if(t==-1)// vma allocation failed
+    return 0xffffffffffffffff;
+
+  myproc()->vmalist[t].addr=addr;
+  myproc()->vmalist[t].length=length;
+  myproc()->vmalist[t].prot=prot;
+  myproc()->vmalist[t].flags=flags;
+  // record mapped file
+  myproc()->vmalist[t].of=f;
+  filedup(f);
+  return addr; 
 }
 
 uint64

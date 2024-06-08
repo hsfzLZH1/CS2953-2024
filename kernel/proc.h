@@ -79,6 +79,16 @@ struct trapframe {
   /* 280 */ uint64 t6;
 };
 
+// virtual memory area
+struct vma
+{
+  uint64 addr;
+  uint64 length; // if length=0 then the item is unused
+  int prot;
+  int flags;
+  struct file*of; // open file
+};
+
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -121,4 +131,6 @@ struct proc {
   // share page within kernel and user
   struct usyscall *usyscallpage;
   #endif
+
+  struct vma vmalist[16];// track mmap regions
 };
