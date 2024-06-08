@@ -182,3 +182,15 @@ sys_sigreturn(void)
   myproc()->is_handling=0;
   return myproc()->trapframe->a0;
 }
+
+uint64
+sys_mmap(void)
+{
+  return 0xffffffffffffffff;
+}
+
+uint64
+sys_munmap(void)
+{
+  return -1;
+}

@@ -40,6 +40,10 @@ int pgaccess(void *base, int len, void *mask);
 int ugetpid(void);
 #endif
 int symlink(char*target,char*path);
+#ifdef LAB_MMAP
+void*mmap(void*addr,size_t length,int prot,int flags,int fd,off_t offset);
+int munmap(void*addr,size_t length);
+#endif
 
 // ulib.c
 int stat(const char*, struct stat*);
