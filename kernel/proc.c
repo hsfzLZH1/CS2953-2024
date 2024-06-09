@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -350,6 +351,13 @@ fork(void)
   // copy trace mask from parent to child.
   np->trace_mask=p->trace_mask;
 
+  // copy vma mapped regions
+  for(int k=0;k<16;k++)
+  {
+    np->vmalist[k]=p->vmalist[k];
+    if(p->vmalist[k].length)filedup(p->vmalist[k].of);
+  }
+
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)
     if(p->ofile[i])
@@ -406,6 +414,23 @@ exit(int status)
       fileclose(f);
       p->ofile[fd] = 0;
     }
+  }
+
+  // unmap all vma mappings
+  for(int k=0;k<16;k++)if(p->vmalist[k].length)
+  {
+    struct vma*it=&(p->vmalist[k]);
+    for(uint64 a=it->addr;a<it->addr+it->length;a+=PGSIZE)
+    {
+      pte_t*pte=walk(p->pagetable,a,0);
+      if(pte==0||((*pte)&PTE_V)==0)continue;// not valid in memory
+      uint64 pa=PTE2PA(*pte);
+      if(it->flags==MAP_SHARED&&((*pte)&PTE_D))// write the page back to file
+        writeback(it->of,pa,a-it->addr);
+      kfree((void*)pa);
+      *pte=0;
+    }
+    fileclose(it->of);// decrement refcnt
   }
 
   begin_op();

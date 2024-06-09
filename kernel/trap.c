@@ -88,7 +88,12 @@ usertrap(void)
           if(it->length&&va>=it->addr&&va<it->addr+it->length)// in vmalist[k]
             {t=k;break;}
         }
-        if(t==-1)panic("usertrap(): access invalid page, pte=0 but not vma page\n");// not vma page fault
+        if(t==-1)// not vma page fault
+        {
+          printf("usertrap(): unexpected write page fault\n");
+          setkilled(p);
+          goto bad;
+        }
 
         // allocate new page, read the page from file
         uint64 mem=(uint64)kalloc();
@@ -134,6 +139,7 @@ usertrap(void)
     setkilled(p);
   }
 
+  bad:;
   if(killed(p))
     exit(-1);
 

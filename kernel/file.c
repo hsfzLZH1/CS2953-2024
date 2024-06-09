@@ -186,7 +186,7 @@ int
 mmap_invalid(struct file*f,int prot,int flags)
 {
   if((prot&PROT_READ)&&!f->readable)return 1;
-  if(flags==MAP_SHARED&&!f->writable)return 1;
+  if((prot&PROT_WRITE)&&flags==MAP_SHARED&&!f->writable)return 1;
   return 0;
 }
 

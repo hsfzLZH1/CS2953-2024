@@ -194,34 +194,35 @@ sys_mmap(void)
   argint(2,&prot);
   argint(3,&flags);
   argint(4,&fd);
+
+  struct proc*p=myproc();
   f=myproc()->ofile[fd];
 
   // find an unused region in the process's address space to map the file
   // the initial address is page-aligned
-  uint64 addr=PGROUNDUP(myproc()->sz);
+  uint64 addr=PGROUNDUP(p->sz);
   uint64 MAXSZ=255ull*512ull*512ull*PGSIZE;
   // ensure not overflow pagetable
   if(length>=MAXSZ||addr+length>=MAXSZ)return 0xffffffffffffffff;
-  myproc()->sz=addr+length;
+  p->sz=addr+length;
 
   // check validity
-  if(mmap_invalid(f,prot,flags)){printf("validitify fales");return 0xffffffffffffffff;}
+  if(mmap_invalid(f,prot,flags))return 0xffffffffffffffff;
 
   // find an vma to record mmap
   int t=-1;
   for(int k=0;k<16;k++)
-    if(myproc()->vmalist[k].length==0)
+    if(p->vmalist[k].length==0)
       {t=k;break;}
   if(t==-1)// vma allocation failed
     return 0xffffffffffffffff;
-printf("alloc vma item %d\n",t);
 
-  myproc()->vmalist[t].addr=addr;
-  myproc()->vmalist[t].length=length;
-  myproc()->vmalist[t].prot=prot;
-  myproc()->vmalist[t].flags=flags;
+  p->vmalist[t].addr=addr;
+  p->vmalist[t].length=length;
+  p->vmalist[t].prot=prot;
+  p->vmalist[t].flags=flags;
   // record mapped file
-  myproc()->vmalist[t].of=f;
+  p->vmalist[t].of=f;
   filedup(f);
   return addr; 
 }
