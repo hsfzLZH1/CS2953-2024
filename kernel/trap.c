@@ -65,8 +65,8 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if(r_scause()==15){
-    // write page fault
+  } else if(r_scause()==12||r_scause()==13||r_scause()==15){
+    // load,write or instruction page fault
     uint64 va=PGROUNDDOWN(r_stval());
     if(va>=MAXVA)// kill, not panic
     {
@@ -76,9 +76,32 @@ usertrap(void)
     else
     {
       pte_t*pte=walk(p->pagetable,va,0);
-      if(pte==0||((*pte)&PTE_V)==0)panic("usertrap(): write to invalid page\n");
 
-      if((*pte)&PTE_RSW1)// CoW page fault
+      if(pte==0||((*pte)&PTE_V)==0)// not mapped
+      {
+        // identify vma page fault
+        int t=-1;
+        struct vma*it;
+        for(int k=0;k<16;k++)
+        {
+          it=&(p->vmalist[k]);
+          if(it->length&&va>=it->addr&&va<=it->addr+it->length)// in vmalist[k]
+            {t=k;break;}
+        }
+        if(t==-1)panic("usertrap(): access invalid page, pte=0 but not vma page\n");// not vma page fault
+
+        // allocate new page, read the page from file
+        uint64 mem=(uint64)kalloc();
+        if(mem==0)panic("vma page fault: allocate page failed\n");
+        memset((char*)mem,0,PGSIZE);
+        if(kernelread(it->of,mem,PGROUNDDOWN(va-it->addr)))
+          panic("vma page fault: read file failed\n");
+        
+        // map the page
+        if(mappages(p->pagetable,va,PGSIZE,mem,(it->prot<<1)|PTE_V|PTE_U))
+          panic("vma page fault: mappages error\n");
+      }
+      else if(r_scause()==15&&((*pte)&PTE_RSW1))// CoW page fault
       {
         uint64 pa=PTE2PA(*pte);
         uint flags=PTE_FLAGS(*pte);

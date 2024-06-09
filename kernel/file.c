@@ -180,3 +180,12 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+// read one page from file to kernel address
+int
+kernelread(struct file*f,uint64 addr,uint64 offset)
+{
+  ilock(f->ip);
+  if(readi(f->ip,0,addr,offset,PGSIZE)<0){iunlock(f->ip);return -1;}
+  iunlock(f->ip);
+  return 0;
+}
