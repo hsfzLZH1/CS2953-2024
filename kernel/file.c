@@ -12,6 +12,7 @@
 #include "file.h"
 #include "stat.h"
 #include "proc.h"
+#include "fcntl.h"
 
 struct devsw devsw[NDEV];
 struct {
@@ -180,6 +181,15 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+// check prot,flags and open file permission
+int
+mmap_invalid(struct file*f,int prot,int flags)
+{
+  if((prot&PROT_READ)&&!f->readable)return 1;
+  if(flags==MAP_SHARED&&!f->writable)return 1;
+  return 0;
+}
+
 // read one page from file to kernel address
 int
 kernelread(struct file*f,uint64 addr,uint64 offset)
@@ -187,5 +197,17 @@ kernelread(struct file*f,uint64 addr,uint64 offset)
   ilock(f->ip);
   if(readi(f->ip,0,addr,offset,PGSIZE)<0){iunlock(f->ip);return -1;}
   iunlock(f->ip);
+  return 0;
+}
+
+// write one page from kernel address to file
+int
+writeback(struct file*f,uint64 addr,uint64 offset)
+{
+  begin_op();
+  ilock(f->ip);
+  writei(f->ip,0,addr,offset,PGSIZE);
+  iunlock(f->ip);
+  end_op();
   return 0;
 }

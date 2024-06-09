@@ -41,7 +41,9 @@ void            fileinit(void);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
+int             mmap_invalid(struct file*f,int prot,int flags);// Lab8 mmap
 int             kernelread(struct file*f,uint64 addr,uint64 offset);
+int             writeback(struct file*f,uint64 addr,uint64 offset);
 
 // fs.c
 void            fsinit(int);

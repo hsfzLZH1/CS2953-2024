@@ -85,7 +85,7 @@ usertrap(void)
         for(int k=0;k<16;k++)
         {
           it=&(p->vmalist[k]);
-          if(it->length&&va>=it->addr&&va<=it->addr+it->length)// in vmalist[k]
+          if(it->length&&va>=it->addr&&va<it->addr+it->length)// in vmalist[k]
             {t=k;break;}
         }
         if(t==-1)panic("usertrap(): access invalid page, pte=0 but not vma page\n");// not vma page fault

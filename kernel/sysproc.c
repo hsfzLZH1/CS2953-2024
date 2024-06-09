@@ -7,6 +7,7 @@
 #include "proc.h"
 
 #include "sysinfo.h" // Lab1 sysinfo
+#include "fcntl.h" // Lab8 mmap
 
 uint64
 sys_exit(void)
@@ -203,6 +204,9 @@ sys_mmap(void)
   if(length>=MAXSZ||addr+length>=MAXSZ)return 0xffffffffffffffff;
   myproc()->sz=addr+length;
 
+  // check validity
+  if(mmap_invalid(f,prot,flags)){printf("validitify fales");return 0xffffffffffffffff;}
+
   // find an vma to record mmap
   int t=-1;
   for(int k=0;k<16;k++)
@@ -210,6 +214,7 @@ sys_mmap(void)
       {t=k;break;}
   if(t==-1)// vma allocation failed
     return 0xffffffffffffffff;
+printf("alloc vma item %d\n",t);
 
   myproc()->vmalist[t].addr=addr;
   myproc()->vmalist[t].length=length;
@@ -224,5 +229,40 @@ sys_mmap(void)
 uint64
 sys_munmap(void)
 {
-  return -1;
+  uint64 addr,length;
+  argaddr(0,&addr);
+  argaddr(1,&length);
+
+  struct proc*p=myproc();
+
+  // find vma
+  int t=-1;
+  struct vma*it;
+  for(int k=0;k<16;k++)
+  {
+    it=&(p->vmalist[k]);
+    if(it->length&&addr>=it->addr&&addr<it->addr+it->length)// in vmalist[k]
+      {t=k;break;}
+  }
+  if(t==-1)return -1;// not found
+  // never punch a hole or out of range
+  if(addr!=it->addr&&addr+length!=it->addr+it->length)return -1;
+
+  // like uvmunmap
+  for(uint64 a=PGROUNDDOWN(addr);a<PGROUNDDOWN(addr)+length;a+=PGSIZE)
+  {
+    pte_t*pte=walk(p->pagetable,a,0);
+    if(pte==0||((*pte)&PTE_V)==0)continue;// not valid in memory
+    uint64 pa=PTE2PA(*pte);
+    if(it->flags==MAP_SHARED&&((*pte)&PTE_D))// write the page back to file
+      writeback(it->of,pa,a-it->addr);
+    kfree((void*)pa);
+    *pte=0;
+  }
+
+  if(addr==it->addr){it->addr+=length;it->length-=length;}
+  else if(addr+length==it->addr+it->length){it->length-=length;}
+  if(it->length==0)fileclose(it->of);// decrement refcnt
+
+  return 0;
 }
