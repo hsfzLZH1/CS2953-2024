@@ -431,6 +431,7 @@ exit(int status)
       *pte=0;
     }
     fileclose(it->of);// decrement refcnt
+    it->length=0;
   }
 
   begin_op();

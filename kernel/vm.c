@@ -15,6 +15,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+extern struct spinlock reflock;
 extern int refcnt[]; // reference count of each physical page
 
 // Make a direct-map page table for the kernel.
@@ -356,7 +357,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     flags = PTE_FLAGS(*pte);
     if(mappages(new, i, PGSIZE, pa, flags) != 0)
       goto err;
+    acquire(&reflock);
     refcnt[pa/PGSIZE]++;
+    release(&reflock);
   }
   return 0;
 
