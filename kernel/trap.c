@@ -65,8 +65,8 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if(r_scause()==12||r_scause()==13||r_scause()==15){
-    // load,write or instruction page fault
+  } else if(r_scause()==13||r_scause()==15){
+    // load or write page fault
     uint64 va=PGROUNDDOWN(r_stval());
     if(va>=MAXVA)// kill, not panic
     {
