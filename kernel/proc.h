@@ -87,6 +87,7 @@ struct vma
   int prot;
   int flags;
   struct file*of; // open file
+  int offset;
 };
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };

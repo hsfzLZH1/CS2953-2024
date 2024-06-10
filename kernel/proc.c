@@ -426,7 +426,7 @@ exit(int status)
       if(pte==0||((*pte)&PTE_V)==0)continue;// not valid in memory
       uint64 pa=PTE2PA(*pte);
       if(it->flags==MAP_SHARED&&((*pte)&PTE_D))// write the page back to file
-        writeback(it->of,pa,a-it->addr);
+        writeback(it->of,pa,a-it->addr+it->offset);
       kfree((void*)pa);
       *pte=0;
     }

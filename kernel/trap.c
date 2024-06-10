@@ -99,7 +99,7 @@ usertrap(void)
         uint64 mem=(uint64)kalloc();
         if(mem==0)panic("vma page fault: allocate page failed\n");
         memset((char*)mem,0,PGSIZE);
-        if(kernelread(it->of,mem,PGROUNDDOWN(va-it->addr)))
+        if(kernelread(it->of,mem,PGROUNDDOWN(va-it->addr+it->offset)))
           panic("vma page fault: read file failed\n");
         
         // map the page

@@ -223,6 +223,7 @@ sys_mmap(void)
   p->vmalist[t].flags=flags;
   // record mapped file
   p->vmalist[t].of=f;
+  p->vmalist[t].offset=0;
   filedup(f);
   return addr; 
 }
@@ -256,12 +257,12 @@ sys_munmap(void)
     if(pte==0||((*pte)&PTE_V)==0)continue;// not valid in memory
     uint64 pa=PTE2PA(*pte);
     if(it->flags==MAP_SHARED&&((*pte)&PTE_D))// write the page back to file
-      writeback(it->of,pa,a-it->addr);
+      writeback(it->of,pa,a-it->addr+it->offset);
     kfree((void*)pa);
     *pte=0;
   }
 
-  if(addr==it->addr){it->addr+=length;it->length-=length;}
+  if(addr==it->addr){it->addr+=length;it->length-=length;it->offset+=length;}
   else if(addr+length==it->addr+it->length){it->length-=length;}
   if(it->length==0)fileclose(it->of);// decrement refcnt
 
