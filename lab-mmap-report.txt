@@ -1,0 +1,33 @@
+# Lab8 mmap
+
+首先在 Makefile UPROGS 中添加 $U/_mmaptest\ ，并添加 mmap, munmap 系统调用. 初始 sys_mmap 和 sys_munmap 实现为直接返回错误时的值.
+
+实现 sys_mmap.
+在 kernel/proc.h 中定义 struct vma ，每个 struct vma 记录一个 mmap 映射的信息，包括映射的起始地址 addr ，映射的长度 length ， prot, flags 和 offset ，还有到被映射文件的 struct file 结构体的指针. （虽然可以默认 mmap 的 offset 参数为 0 ，但 munmap 取消开始一部分的映射后会导致 mmap 不为 0 ，一开始我没有记录 offset 但也通过了测试. ）若映射的长度 length 为 0 则认为该结构体未没有记录映射，未被使用.
+在 struct proc 中添加域 struct vma vmalist[16] ，对每个进程记录其 mmap 映射.
+sys_mmap 首先依次获取参数 length,prot,flags,fd.
+struct proc*p=myproc() 获取当前进程的结构体， f=p->ofile[fd] 获取 mmap 对应的文件的 struct file 指针.
+首先尝试给映射分配虚拟地址. p->sz 是当前进程的大小，即当前进程使用的虚拟地址（除特殊分配的 trampoline page 等）不会超过 p->sz ，就从 addr=PGROUNDUP(p->sz) 开始将长度为 length 的虚拟地址用于进行这个映射. 如果映射的范围超出 MAXSZ ，即安全的最大虚拟地址，则 mmap 失败并返回错误值 0xffffffffffffffff ；否则地址段分配成功，令 p->sz=addr+length ，最后的返回值即分配的起始地址 addr.
+接下来通过 f,prot,flags 判断映射是否合法. mmap_invalid 函数通过获取 f->readable 和 f->writable 判断被映射文件是否可读和可写. 若 prot 的 PROT_READ 位为 1 但文件不可读，或者 prot 的 PROT_WRITE 位为 1 ，文件不可写且 flags 为 MAP_SHARED ，映射不合法. （若 prot 的 PROT_WRITE 位为 1 ，文件不可写但 flags 为 MAP_PRIVATE ，映射仍合法， mmap 的文件在内存中的拷贝可以被修改，但修改不会写回文件.）
+在 p->vmalist 中找到一个未被使用的项，如果失败则返回错误值，否则在该项中记录 mmap 映射的信息，其中 offset 为 0 ，并用 filedup(f) 增加被映射文件的 reference count.
+
+处理 mmap page fault.
+如果 usertrap 中 scause 寄存器的值为 13 或 15 ( load/store page fault )，则可能是 mmap page fault. stval 寄存器的值即访问时产生 page fault 的地址.
+首先判断其是否超出 MAXVA ，若是则杀死进程. 
+pte_t*pte=walk(p->pagetable,va,0) 尝试获取访问目标的 page table entry . 若 pte 为 0 或 *pte 的 valid bit 为 0 ，说明访问地址没有被映射；否则不可能是 mmap page fault ，继续判断是否是 CoW page fault 等等.
+如果访问地址没有被映射，在当前进程的 vmalist 查找访问虚拟地址是否落在某个 vma 范围内. 若是则说明是 mmap page fault ， kalloc 分配新的内存页，通过 kernelread 函数将文件对应内容读取到该页，然后将访问虚拟地址映射到该页.
+kernelread 先获取锁 f->ip ，通过 readi 读取文件从 offset 开始的一个页，最后释放锁 f->ip .
+
+实现 sys_munmap.
+保证只会取消一段映射的开头或末尾，故 munmap 后一段映射还是连续的一段. 
+首先获取参数 addr,length . 查找取消的映射所在的 vma 结构体. 如果没找到或取消映射的不是开头或末尾，返回错误值 -1.
+类似 uvmunmap 的实现，遍历取消映射的段， pte_t*pte=walk(p->pagetable,a,0) 获取 PTE ，若 pte 为 0 或 *pte valid bit 为 0 ，说明无映射，否则有映射，获取物理地址 pa ，如果映射 flags 为 MAP_SHARED 且该页被写修改过（ dirty bit 为 1 ， dirty bit 在 riscv.h 中添加宏 #define PTE_D (1L << 7) ），则使用 writeback 将修改后的页写回文件. 释放页 pa 并 *pte=0 取消映射.
+writeback 实现类似 kernelread ，将 readi 改为 writei .
+最后修改 vma 的信息. 如果取消映射从头开始，将 addr,offset 增加取消长度， length 减少取消长度；如果在末尾，将 length 减少取消长度；如果 sys_munmap 取消了整个映射，使用 fileclose(it->of) 减少被映射文件的 reference count.
+
+修改 exit . exit 函数中类似 munmap 取消所有 mmap 映射.
+修改 fork . fork 函数中子进程复制父进程的所有 mmap 映射，并 filedup 增加 reference count .
+由于 sys_mmap 修改后 p->sz 以内的地址不一定对应一个已经分配好的页，在 kernel/vm.c uvmunmap,uvmcopy 中发现页表映射不存在时不再 panic ，改为跳过.
+
+修改后通过了 mmap_test ，小概率不通过 usertests .
+debug 很久后发现是因为 Lab6 CoW 中添加的 refcnt 数组没有用锁进行保护，导致有时出现 race condition 影响了整个系统的稳定运行. 增加 refcnt 锁后通过了测试.
